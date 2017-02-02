@@ -3,16 +3,11 @@ using MarketPriceLogger.Model;
 using MarketPriceLogger.ViewModel.Commands;
 using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Linq;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace MarketPriceLogger.ViewModel
 {
@@ -74,23 +69,34 @@ namespace MarketPriceLogger.ViewModel
 			}
 		}
 
-		public int CardIdToAddValue { get { return int.Parse(CardIdToAdd); } }
-
 		public SimpleCommand AddCard { get; set; }
 
 		public MainViewModel()
 		{
 			AddCard = new SimpleCommand(() =>
 			{
-				Card card = new Card()
+				HttpClient httpClient = new HttpClient();
+				Card card = new Card();
+				int cardId;
+				if (int.TryParse(CardIdToAdd, out cardId))
 				{
-					Id = CardIdToAddValue
-				};
+					card.Id = cardId;
+				}
+				else
+				{
+					string responseString = httpClient.GetStringAsync(CardIdToAdd).Result;
+					int firstIndex = responseString.IndexOf("Market_LoadOrderSpread") + 24;
+					int lastIndex = responseString.IndexOf(')', firstIndex);
+					string cardIdString = responseString.Substring(firstIndex, lastIndex - firstIndex - 1);
+					int cardIdValue = int.Parse(cardIdString);
+					card.Id = cardIdValue;
+				}
+				
 				Cards.Add(card);
 				Thread thread = new Thread(new ParameterizedThreadStart((object c) =>
 				{
 					Card marketCard = c as Card;
-					HttpClient httpClient = new HttpClient();
+					
 					long lastTimestamp = 0;
 					while (true)
 					{
@@ -109,7 +115,7 @@ namespace MarketPriceLogger.ViewModel
 							string activityString = (string)activityJArray[i];
 							HtmlDocument htmlDoc = new HtmlDocument();
 							htmlDoc.LoadHtml(activityString);
-							marketCard.AddEvent(htmlDoc.DocumentNode.InnerText.Trim('\n', '\t', '\r'));
+							marketCard.AddEvent(DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss - ") + htmlDoc.DocumentNode.InnerText.Trim('\n', '\t', '\r'));
 							if (!activityString.Contains("приобрел"))
 							{
 								continue;
@@ -121,20 +127,20 @@ namespace MarketPriceLogger.ViewModel
 							decimal price = decimal.Parse(priceString);
 							marketCard.AddOrder(price);
 
-							StringBuilder sb = new StringBuilder();
+							//StringBuilder sb = new StringBuilder();
 							
-							HtmlNodeCollection nodes = htmlDoc.DocumentNode.SelectNodes("//span[@class='market_ticker_name']");
-							sb.Append(nodes[0].InnerText);
-							sb.Append(" - ");
-							sb.Append(nodes[1].InnerText);
-							sb.Append(" - ");
-							sb.Append(price.ToString("C"));
+							//HtmlNodeCollection nodes = htmlDoc.DocumentNode.SelectNodes("//span[@class='market_ticker_name']");
+							//sb.Append(nodes[0].InnerText);
+							//sb.Append(" - ");
+							//sb.Append(nodes[1].InnerText);
+							//sb.Append(" - ");
+							//sb.Append(price.ToString("C"));
 						}
-						//marketCard.AddOrder((decimal)responseJson["timestamp"]);
 					}
 				}));
 				_threads.Add(thread);
 				thread.Start(card);
+				CardIdToAdd = string.Empty;
 			}, () =>
 			{
 				return !string.IsNullOrWhiteSpace(CardIdToAdd);
